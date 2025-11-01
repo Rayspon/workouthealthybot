@@ -1,0 +1,355 @@
+import logging
+import telebot
+from telebot import types
+from database_manager import DatabaseManager
+from ai_service import AIService
+
+logger = logging.getLogger(__name__)
+
+# In-memory state management (for profile setup)
+user_states = {}
+
+def create_bot(bot: telebot.TeleBot, db: DatabaseManager, ai: AIService):
+    """Creates and configures the Telegram bot with all its handlers."""
+
+    # Handler for /start command
+    @bot.message_handler(commands=['start'])
+    def start_command(message):
+        user_id = message.from_user.id
+        user = db.get_user(user_id)
+
+        if user:
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                types.InlineKeyboardButton("📋 My Profile", callback_data="profile"),
+                types.InlineKeyboardButton("💪 Generate Workout", callback_data="workout_plan"),
+                types.InlineKeyboardButton("🥗 Generate Diet", callback_data="diet_plan"),
+                types.InlineKeyboardButton("📊 Log Progress", callback_data="log_progress"),
+                types.InlineKeyboardButton("📈 View Progress", callback_data="view_progress"),
+                types.InlineKeyboardButton("⚙️ Settings", callback_data="settings")
+            )
+            bot.send_message(
+                message.chat.id,
+                f"Welcome back, {message.from_user.first_name}! 🏋️‍♂️\n\nWhat would you like to do today?",
+                reply_markup=markup
+            )
+        else:
+            bot.send_message(
+                message.chat.id,
+                "🏋️‍♂️ Welcome to your Personal Fitness Bot! 💪\n\n" 
+                "I'll help you create personalized workout and diet plans. " 
+                "Let's start by setting up your profile. Please tell me your age:"
+            )
+            user_states[user_id] = {'step': 'age', 'data': {}}
+
+    # Handler for /help command
+    @bot.message_handler(commands=['help'])
+    def help_command(message):
+        help_text = """
+🏋️‍♂️ **Fitness Bot Commands:**
+
+/start - Start the bot or return to the main menu
+/help - Show this help message
+/profile - View and manage your profile
+/workout - Manage your workout plan
+/diet - Manage your diet plan
+/progress - Log and view your progress
+/reminders - Set and manage reminders
+        """
+        bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
+
+    # Callback query handler
+    @bot.callback_query_handler(func=lambda call: True)
+    def callback_handler(call):
+        try:
+            user_id = call.from_user.id
+            action = call.data
+
+            actions = {
+                "profile": show_profile,
+                "workout_plan": generate_workout_plan,
+                "diet_plan": generate_diet_plan,
+                "log_progress": log_progress_start,
+                "view_progress": show_progress_history,
+                "settings": show_settings,
+                "update_profile": update_profile_start,
+            }
+
+            if action in actions:
+                actions[action](call.message, user_id)
+            else:
+                bot.answer_callback_query(call.id, "Action not implemented yet.")
+        except Exception as e:
+            logger.error(f"An error occurred in callback_handler for user {call.from_user.id}: {e}")
+            bot.send_message(call.message.chat.id, "An unexpected error occurred. Please try again.")
+
+    # --- Profile Management ---
+    def show_profile(message, user_id):
+        user_profile = db.get_user(user_id)
+        if user_profile:
+            profile_text = f"""
+👤 **Your Profile:**
+
+• Age: {user_profile.get('age', 'N/A')} years
+• Weight: {user_profile.get('weight', 'N/A')} kg
+• Height: {user_profile.get('height', 'N/A')} cm
+• Gender: {user_profile.get('gender', 'N/A')}
+• Fitness Level: {user_profile.get('fitness_level', 'N/A')}
+• Goals: {user_profile.get('goals', 'N/A')}
+            """
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("📝 Update Profile", callback_data="update_profile"))
+            bot.send_message(message.chat.id, profile_text, reply_markup=markup, parse_mode='Markdown')
+        else:
+            bot.send_message(message.chat.id, "Please complete your profile setup first using /start")
+
+    def update_profile_start(message, user_id):
+        bot.send_message(message.chat.id, "Let's update your profile. What is your new weight in kg?")
+        user_states[user_id] = {'step': 'update_weight', 'data': {}}
+
+    # --- Plan Generation ---
+    def generate_workout_plan(message, user_id):
+        user_profile = db.get_user(user_id)
+        if not user_profile:
+            bot.send_message(message.chat.id, "Please complete your profile setup first using /start")
+            return
+
+        bot.send_message(message.chat.id, "🔄 Generating your personalized workout plan...")
+        try:
+            plan = ai.generate_workout_plan(user_profile)
+            db.save_workout_plan(user_id, {'plan': plan})
+            bot.send_message(message.chat.id, f"💪 **Your Workout Plan:**\n\n{plan}", parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Error generating workout plan for user {user_id}: {e}")
+            bot.send_message(message.chat.id, "Sorry, I couldn't generate a workout plan at the moment. Please try again later.")
+
+    def generate_diet_plan(message, user_id):
+        user_profile = db.get_user(user_id)
+        if not user_profile:
+            bot.send_message(message.chat.id, "Please complete your profile setup first using /start")
+            return
+
+        bot.send_message(message.chat.id, "🔄 Generating your personalized diet plan...")
+        try:
+            plan = ai.generate_diet_plan(user_profile)
+            db.save_diet_plan(user_id, {'plan': plan})
+            bot.send_message(message.chat.id, f"🥗 **Your Diet Plan:**\n\n{plan}", parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Error generating diet plan for user {user_id}: {e}")
+            bot.send_message(message.chat.id, "Sorry, I couldn't generate a diet plan at the moment. Please try again later.")
+
+    # --- Progress Tracking ---
+    def log_progress_start(message, user_id):
+        bot.send_message(message.chat.id, "Did you complete your workout today? (yes/no)")
+        user_states[user_id] = {'step': 'log_workout_completed', 'data': {}}
+
+    def show_progress_history(message, user_id):
+        progress_records = db.get_progress_history(user_id)
+        if progress_records:
+            history_text = "📊 **Your Recent Progress:**\n\n"
+            for record in progress_records:
+                record_dict = dict(record)
+                date = record_dict['date'].split()[0]
+                history_text += f"• {date}: Weight {record_dict.get('weight', 'N/A')}kg"
+                if record_dict.get('workout_completed'):
+                    history_text += " ✅ Workout completed"
+                history_text += "\n"
+            bot.send_message(message.chat.id, history_text, parse_mode='Markdown')
+        else:
+            bot.send_message(message.chat.id, "No progress recorded yet. Use 'Log Progress' to start!")
+
+    # --- Settings ---
+    def show_settings(message, user_id):
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔔 Manage Reminders", callback_data="manage_reminders"))
+        markup.add(types.InlineKeyboardButton("📝 Update Profile", callback_data="update_profile"))
+        bot.send_message(message.chat.id, "⚙️ **Settings:**", reply_markup=markup, parse_mode='Markdown')
+
+
+
+    # --- Message Handler for Profile Setup and State-based Actions ---
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'age')
+    def handle_age(message):
+        try:
+            user_id = message.from_user.id
+            age = int(message.text)
+            if 13 <= age <= 100:
+                user_states[user_id]['data']['age'] = age
+                user_states[user_id]['step'] = 'weight'
+                bot.send_message(message.chat.id, "Great! Now, what's your weight in kg?")
+            else:
+                bot.send_message(message.chat.id, "Please enter a valid age (13-100).")
+        except ValueError:
+            bot.send_message(message.chat.id, "Please enter a valid number for your age.")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'weight')
+    def handle_weight(message):
+        try:
+            user_id = message.from_user.id
+            weight = float(message.text)
+            if 30 <= weight <= 300:
+                user_states[user_id]['data']['weight'] = weight
+                user_states[user_id]['step'] = 'height'
+                bot.send_message(message.chat.id, "Got it. And your height in cm?")
+            else:
+                bot.send_message(message.chat.id, "Please enter a valid weight (30-300 kg).")
+        except ValueError:
+            bot.send_message(message.chat.id, "Please enter a valid number for your weight.")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'height')
+    def handle_height(message):
+        try:
+            user_id = message.from_user.id
+            height = int(message.text)
+            if 100 <= height <= 250:
+                user_states[user_id]['data']['height'] = height
+                user_states[user_id]['step'] = 'gender'
+                bot.send_message(message.chat.id, "What is your gender? (Male/Female/Other)")
+            else:
+                bot.send_message(message.chat.id, "Please enter a valid height (100-250 cm).")
+        except ValueError:
+            bot.send_message(message.chat.id, "Please enter a valid number for your height.")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'gender')
+    def handle_gender(message):
+        user_id = message.from_user.id
+        gender = message.text.strip().capitalize()
+        if gender in ['Male', 'Female', 'Other']:
+            user_states[user_id]['data']['gender'] = gender
+            user_states[user_id]['step'] = 'fitness_level'
+            bot.send_message(message.chat.id, "What is your fitness level? (Beginner/Intermediate/Advanced)")
+        else:
+            bot.send_message(message.chat.id, "Please choose from Male, Female, or Other.")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'fitness_level')
+    def handle_fitness_level(message):
+        user_id = message.from_user.id
+        level = message.text.strip().capitalize()
+        if level in ['Beginner', 'Intermediate', 'Advanced']:
+            user_states[user_id]['data']['fitness_level'] = level
+            user_states[user_id]['step'] = 'goals'
+            bot.send_message(message.chat.id, "What are your fitness goals? (e.g., lose weight, build muscle, improve endurance)")
+        else:
+            bot.send_message(message.chat.id, "Please choose from Beginner, Intermediate, or Advanced.")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'goals')
+    def handle_goals(message):
+        user_id = message.from_user.id
+        user_states[user_id]['data']['goals'] = message.text
+        user_states[user_id]['step'] = 'medical_conditions'
+        bot.send_message(message.chat.id, "Do you have any medical conditions we should be aware of? (or type 'None')")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'medical_conditions')
+    def handle_medical_conditions(message):
+        user_id = message.from_user.id
+        user_states[user_id]['data']['medical_conditions'] = message.text
+        user_states[user_id]['step'] = 'dietary_restrictions'
+        bot.send_message(message.chat.id, "Do you have any dietary restrictions? (e.g., vegetarian, gluten-free, or type 'None')")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'dietary_restrictions')
+    def handle_dietary_restrictions(message):
+        user_id = message.from_user.id
+        user_states[user_id]['data']['dietary_restrictions'] = message.text
+        user_states[user_id]['step'] = 'workout_days'
+        bot.send_message(message.chat.id, "How many days a week can you work out?")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'workout_days')
+    def handle_workout_days(message):
+        try:
+            user_id = message.from_user.id
+            days = int(message.text)
+            if 1 <= days <= 7:
+                user_states[user_id]['data']['workout_days'] = days
+                user_states[user_id]['step'] = 'workout_duration'
+                bot.send_message(message.chat.id, "How long can you work out each session (in minutes)?")
+            else:
+                bot.send_message(message.chat.id, "Please enter a number between 1 and 7.")
+        except ValueError:
+            bot.send_message(message.chat.id, "Please enter a valid number.")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'workout_duration')
+    def handle_workout_duration(message):
+        try:
+            user_id = message.from_user.id
+            duration = int(message.text)
+            if 15 <= duration <= 180:
+                data = user_states[user_id]['data']
+                data['workout_duration'] = duration
+                # Save the user
+                user_data = {
+                    'user_id': user_id,
+                    'username': message.from_user.username,
+                    'first_name': message.from_user.first_name,
+                    'age': data['age'],
+                    'weight': data['weight'],
+                    'height': data['height'],
+                    'gender': data['gender'],
+                    'fitness_level': data['fitness_level'],
+                    'goals': data['goals'],
+                    'medical_conditions': data.get('medical_conditions'),
+                    'dietary_restrictions': data.get('dietary_restrictions'),
+                    'workout_days': data['workout_days'],
+                    'workout_duration': data['workout_duration']
+                }
+                db.save_user(user_data)
+                del user_states[user_id]
+                bot.send_message(message.chat.id, "🎉 Profile setup complete! Use /start to see what I can do.")
+            else:
+                bot.send_message(message.chat.id, "Please enter a valid duration (15-180 minutes).")
+        except ValueError:
+            bot.send_message(message.chat.id, "Please enter a valid number.")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'log_workout_completed')
+    def handle_log_workout_completed(message):
+        user_id = message.from_user.id
+        completed = message.text.lower()
+        if completed in ['yes', 'no']:
+            user_states[user_id]['data']['workout_completed'] = (completed == 'yes')
+            user_states[user_id]['step'] = 'log_notes'
+            bot.send_message(message.chat.id, "Any notes about your workout?")
+        else:
+            bot.send_message(message.chat.id, "Please answer with 'yes' or 'no'.")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'log_notes')
+    def handle_log_notes(message):
+        user_id = message.from_user.id
+        data = user_states[user_id]['data']
+        data['notes'] = message.text
+        db.log_progress(
+            user_id,
+            workout_completed=data['workout_completed'],
+            notes=data['notes']
+        )
+        del user_states[user_id]
+        bot.send_message(message.chat.id, "✅ Progress logged successfully!")
+
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('step') == 'update_weight')
+    def handle_update_weight(message):
+        try:
+            user_id = message.from_user.id
+            weight = float(message.text)
+            if 30 <= weight <= 300:
+                user = db.get_user(user_id)
+                if user:
+                    user['weight'] = weight
+                    db.save_user(user)
+                    del user_states[user_id]
+                    bot.send_message(message.chat.id, "✅ Your weight has been updated!")
+                    show_profile(message, user_id)
+                else:
+                    bot.send_message(message.chat.id, "Could not find your profile. Please create one using /start.")
+            else:
+                bot.send_message(message.chat.id, "Please enter a valid weight (30-300 kg).")
+        except (ValueError, TypeError, IndexError) as e:
+            logger.error(f"Error updating weight for user {user_id}: {e}")
+            bot.send_message(message.chat.id, "An error occurred while updating your profile. Please try again.")
+            if user_id in user_states:
+                del user_states[user_id]
+
+    @bot.message_handler(func=lambda message: True)
+    def handle_default(message):
+        bot.send_message(message.chat.id, "Not sure how to help with that. Try /start or /help.")
+
+        
+
+    
