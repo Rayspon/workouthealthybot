@@ -1,14 +1,6 @@
-<<<<<<< HEAD
 pyTelegramBotAPI==4.14.0
 requests==2.31.0
 flask==2.3.3
 python-dotenv==1.0.0
 gunicorn==21.2.0
 schedule==1.2.2
-=======
-pyTelegramBotAPI==4.14.0
-requests==2.31.0
-flask==2.3.3
-python-dotenv==1.0.0
-gunicorn==21.2.0
->>>>>>> 5b7a1ba87e91d3a9b63edc964c51532036cc1128

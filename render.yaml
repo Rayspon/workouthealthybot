@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 services:
   - type: web
     name: telegram-fitness-bot
@@ -14,21 +13,4 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
       - key: WEBHOOK_URL
-=======
-services:
-  - type: web
-    name: telegram-fitness-bot
-    env: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
-    envVars:
-      - key: ENVIRONMENT
-        value: production
-      - key: TELEGRAM_TOKEN
-        sync: false
-      - key: OPENROUTER_API_KEY
-        sync: false
-      - key: WEBHOOK_URL
->>>>>>> 5b7a1ba87e91d3a9b63edc964c51532036cc1128
         sync: false

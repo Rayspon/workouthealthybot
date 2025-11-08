@@ -9,7 +9,7 @@ echo "=========================================="
 # Check if required files exist
 echo "📋 Checking required files..."
 
-required_files=("bot.py" "requirements.txt" "render.yaml" "database_manager.py" "ai_service.py" "reminder_service.py")
+required_files=("main.py" "bot.py" "requirements.txt" "render.yaml" "database_manager.py" "ai_service.py" "reminder_service.py")
 missing_files=()
 
 for file in "${required_files[@]}"; do
@@ -103,7 +103,7 @@ wheels/
 *.egg
 
 # Virtual environments
-venv/
+virtualenv/
 env/
 ENV/
 
@@ -131,7 +131,7 @@ if [ "$test_local" = "y" ] || [ "$test_local" = "Y" ]; then
     echo "🚀 Starting local test..."
     echo "Press Ctrl+C to stop the test"
     export ENVIRONMENT=development
-    python bot.py &
+    python main.py &
     bot_pid=$!
 
     echo "Bot is running locally. Test it by messaging your bot on Telegram."
@@ -147,35 +147,40 @@ echo "🚀 DEPLOYMENT INSTRUCTIONS"
 echo "========================="
 echo ""
 echo "1. Create a Render account at https://render.com"
+
 echo ""
 echo "2. Create a new Web Service:"
-echo "   - Connect your GitHub repository"
-echo "   - Choose 'Python' as the environment"
-echo "   - Build Command: pip install -r requirements.txt"
-echo "   - Start Command: python bot.py"
+   echo "   - Connect your GitHub repository"
+   echo "   - Choose 'Python' as the environment"
+   echo "   - Build Command: pip install -r requirements.txt"
+   echo "   - Start Command: gunicorn main:app"
+
 echo ""
 echo "3. Set Environment Variables in Render:"
-echo "   - ENVIRONMENT = production"
-echo "   - TELEGRAM_TOKEN = $TELEGRAM_TOKEN"
-echo "   - OPENROUTER_API_KEY = $OPENROUTER_API_KEY"
-echo "   - WEBHOOK_URL = https://your-app-name.onrender.com/"
+   echo "   - ENVIRONMENT = production"
+   echo "   - TELEGRAM_TOKEN = $TELEGRAM_TOKEN"
+   echo "   - OPENROUTER_API_KEY = $OPENROUTER_API_KEY"
+   echo "   - WEBHOOK_URL = https://your-app-name.onrender.com/"
+
 echo ""
 echo "4. Deploy your service!"
+
 echo ""
 echo "📋 IMPORTANT NOTES:"
-echo "=================="
+echo "==================="
 echo "• Replace 'your-app-name' with your actual Render app name"
 echo "• The webhook URL must end with a forward slash (/)"
 echo "• Free Render services may sleep after 15 minutes of inactivity"
 echo "• The database will be reset when the service restarts (use persistent storage for production)"
+
 echo ""
 echo "🔧 OPTIONAL IMPROVEMENTS:"
-echo "========================"
+echo "======================="
 echo "• Add persistent PostgreSQL database"
 echo "• Set up monitoring and logging"
 echo "• Implement backup strategies"
 echo "• Add more advanced AI features"
-echo ""
+
 
 # Create README if it doesn't exist
 if [ ! -f "README.md" ]; then
@@ -212,7 +217,7 @@ A personalized fitness bot that creates custom workout and diet plans using AI, 
 3. Copy `.env.example` to `.env` and configure your tokens
 4. Run the bot:
    ```bash
-   python bot.py
+   python main.py
    ```
 
 ### Deployment to Render
@@ -244,6 +249,7 @@ See `deploy.sh` for detailed deployment instructions.
 
 ## Architecture
 
+- `main.py` - Entry point of the application
 - `bot.py` - Main bot logic and handlers
 - `database_manager.py` - SQLite database operations
 - `ai_service.py` - OpenRouter AI integration
@@ -258,10 +264,12 @@ fi
 
 echo ""
 echo "🎉 Setup complete! Your bot is ready for deployment."
+
 echo ""
 echo "Next steps:"
 echo "1. Push your code to GitHub"
 echo "2. Follow the deployment instructions above"
 echo "3. Test your deployed bot"
+
 echo ""
 echo "Good luck with your fitness bot! 💪"

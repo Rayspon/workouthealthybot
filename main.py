@@ -23,8 +23,10 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 WEBHOOK_URL = os.getenv('WEBHOOK_URL')
 ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
 
-def get_app():
-    """Creates and configures the Flask app."""
+app = Flask(__name__)
+
+def setup_bot():
+    """Creates and configures the bot."""
     if not TELEGRAM_TOKEN:
         logger.critical("TELEGRAM_TOKEN environment variable not set!")
         return None
@@ -41,27 +43,23 @@ def get_app():
     reminder_service = ReminderService(TELEGRAM_TOKEN, db_manager, ai_service)
     reminder_service.start()
 
-    app = Flask(__name__)
+    return bot_instance
 
-    @app.route('/', methods=['POST'])
-    def webhook():
-        if request.headers.get('content-type') == 'application/json':
-            json_str = request.get_data().decode('UTF-8')
-            update = telebot.types.Update.de_json(json_str)
-            bot_instance.process_new_updates([update])
-            return '', 200
-        else:
-            return 'Unsupported Media Type', 415
+bot_instance = setup_bot()
 
-    @app.route('/', methods=['GET'])
-    def index():
-        return "Fitness Bot is running!", 200
+@app.route('/', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_str = request.get_data().decode('UTF-8')
+        update = telebot.types.Update.de_json(json_str)
+        bot_instance.process_new_updates([update])
+        return '', 200
+    else:
+        return 'Unsupported Media Type', 415
 
-    bot_instance.remove_webhook()
-    bot_instance.set_webhook(url=WEBHOOK_URL)
-    logger.info(f"Webhook set to {WEBHOOK_URL}")
-
-    return app
+@app.route('/', methods=['GET'])
+def index():
+    return "Fitness Bot is running!", 200
 
 def run_polling():
     """Runs the bot in polling mode."""
@@ -70,20 +68,16 @@ def run_polling():
         logger.critical("TELEGRAM_TOKEN environment variable not set!")
         return
 
-    db_manager = DatabaseManager()
-    ai_service = AIService()
-    bot_instance = telebot.TeleBot(TELEGRAM_TOKEN)
-    create_bot(bot_instance, db_manager, ai_service)
-    reminder_service = ReminderService(TELEGRAM_TOKEN, db_manager, ai_service)
-    reminder_service.start()
-
+    # The bot is already set up, so we just need to start polling
     bot_instance.remove_webhook()  # Ensure webhook is removed for polling
     bot_instance.infinity_polling()
 
 if __name__ == "__main__":
     if ENVIRONMENT == 'production':
-        app = get_app()
-        if app:
+        if bot_instance:
+            bot_instance.remove_webhook()
+            bot_instance.set_webhook(url=WEBHOOK_URL)
+            logger.info(f"Webhook set to {WEBHOOK_URL}")
             port = int(os.environ.get('PORT', 5000))
             app.run(host='0.0.0.0', port=port)
     else:
